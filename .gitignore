@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+walmart_dataset/connection
+
+__pycache__/
+*.py[cod]
+
+airflow_dbt_project/logs/
+airflow_dbt_project/.pytest_cache/
+airflow_dbt_project/.mypy_cache/
+
+.DS_Store
+Thumbs.db
