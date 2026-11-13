@@ -1,6 +1,6 @@
 # 🛒 Walmart Lakehouse: End-to-End Data Engineering Project
 
-> An end-to-end, production-style data engineering project built on a **Lakehouse architecture** using **Ghost (agentic Postgres)**, **Databricks**, **dbt**, **Apache Airflow**, **Delta Lake** and **AWS S3**.
+> An end-to-end, production-style data engineering project built on a **Lakehouse architecture** using **Neon (serverless Postgres)**, **Databricks**, **dbt**, **Apache Airflow**, **Delta Lake** and **AWS S3**.
 
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue)
 ![Databricks](https://img.shields.io/badge/Databricks-Delta%20Lake-red)
@@ -18,7 +18,7 @@ This project simulates a real data engineering team workflow for a Walmart-style
 
 - Lakehouse architecture (Delta Lake on Databricks)
 - CDC-style incremental ingestion using cursor columns and primary keys (idempotent upserts)
-- Agentic database (Ghost) with natural-language querying via MCP and **forkable** databases
+- Serverless Postgres source (**Neon**) with database **branching** for safe experimentation
 - Metadata-driven pipelines using Jinja templating
 - One Big Table (OBT) design
 - Dimensional modeling: star schema, fact and dimension tables
@@ -36,7 +36,7 @@ This project simulates a real data engineering team workflow for a Walmart-style
 ```mermaid
 flowchart LR
     subgraph Sources
-        A[(Ghost DB<br/>Agentic Postgres)]
+        A[(Neon<br/>Serverless Postgres)]
         B[(AWS S3<br/>reviews.csv)]
     end
 
@@ -73,14 +73,14 @@ flowchart LR
 
 | Tool | Purpose |
 |---|---|
-| **Ghost (ghost.build)** | Hosted agentic Postgres source database |
+| **Neon** | Hosted serverless Postgres source database (with branching) |
 | **Databricks (Free Edition)** | Lakehouse platform, Spark, Delta Lake, Unity Catalog |
 | **dbt Core + dbt-databricks** | Transformations, tests, snapshots |
 | **Apache Airflow 3.x** | Orchestration and scheduling |
 | **Docker / Docker Compose** | Running Airflow locally with a custom image |
 | **AWS S3** | Data lake for the reviews file |
 | **Git & GitHub** | Version control and portfolio deployment |
-| **VS Code + Copilot (free tier)** | Agentic IDE to interact with the Ghost database via MCP |
+| **VS Code + dbt Power User** | IDE for dbt development (query preview, lineage, Jinja support) |
 | **uv** | Python package and environment manager |
 
 ---
@@ -122,7 +122,7 @@ flowchart LR
 
 ## 🗃️ Dataset
 
-A simulated Walmart retail dataset with six source tables in the `raw` schema of the Ghost Postgres database:
+A simulated Walmart retail dataset with six source tables in the `raw` schema of the Neon Postgres database:
 
 `customers` · `employees` · `orders` · `order_items` · `products` · `stores`
 
@@ -132,14 +132,15 @@ plus a standalone `reviews.csv` file that lives in S3.
 
 ## 🔄 Pipeline Walkthrough
 
-### 1. Source: Ghost agentic database
-- Install the Ghost CLI, then run `ghost init`, `ghost create` and generate an API key.
-- Tables are created and CSVs are loaded **by an AI agent** through the Ghost MCP server in VS Code (using Postgres `COPY`).
-- Ad-hoc analysis (primary keys, row counts, average order size) is done in natural language against a **fork** of the database, so the production database is never at risk.
+### 1. Source: Neon Postgres
+- Created a Neon project with a `walmart_db` database and a `raw` schema.
+- Ran the DDL script from `data/` to create the six tables, then loaded the CSV files (e.g. `COPY` / `psql \copy`, or a Python loader).
+- Used a Neon **branch** as a safe sandbox for ad-hoc queries and schema checks, so the main branch stays untouched.
+- Databricks connects to Neon over a Postgres connection (`walmart_conn`); Neon requires SSL (`sslmode=require`).
 
 ### 2. Bronze: CDC-style ingestion (Databricks)
 - Created the `walmart` catalog and `bronze` schema in Unity Catalog.
-- Built a Databricks **Lakeflow Connect** pipeline for PostgreSQL.
+- Built a Databricks **Lakeflow Connect** pipeline for PostgreSQL, using the Neon connection.
 - Each table uses `updated_timestamp` as the **cursor column** and its ID as the **primary key**, giving incremental loads, upserts and idempotency with no CDC setup on the source.
 - Verified idempotency: re-running the pipeline produced 0 upserts and no duplicates.
 - A Databricks **Job** wraps the pipeline so it can be triggered externally.
@@ -196,7 +197,7 @@ ingest_cdc → clean_target → source_freshness → silver_technical → silver
 ### Prerequisites
 - Python 3.11 or 3.12 (3.13 has limited dbt compatibility)
 - Git, VS Code, Docker Desktop
-- Accounts: GitHub, Databricks Free Edition (AWS), Ghost, AWS
+- Accounts: GitHub, Databricks Free Edition (AWS), Neon, AWS
 
 ### 1. Clone and set up the environment
 ```bash
@@ -208,19 +209,21 @@ uv sync
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 ```
 
-### 2. Set up the source database (Ghost)
-```bash
-curl -fsSL https://install.ghost.build | sh   # see ghost.build docs; use PowerShell on Windows
-ghost init
-ghost create --name walmart_db
-ghost list
-ghost connect walmart_db                       # get the connection string
-```
-Load the DDL and CSVs from `data/` (manually or via the agent in VS Code).
+### 2. Set up the source database (Neon)
+1. Create a free project at [neon.tech](https://neon.tech) and a database named `walmart_db`.
+2. Copy the connection string from the Neon console (**Connect** button). It looks like:
+   ```
+   postgresql://<user>:<password>@<host>.neon.tech/walmart_db?sslmode=require
+   ```
+3. Create the `raw` schema and tables with the DDL script, then load the CSVs from `data/`:
+   ```bash
+   psql "<your-neon-connection-string>" -f data/ddl.sql
+   ```
+4. Store the connection string in `.env` (never commit it).
 
 ### 3. Set up Databricks
 1. Create the `walmart` catalog and `bronze` schema.
-2. Create a Lakeflow Connect PostgreSQL pipeline (cursor: `updated_timestamp`, key: table ID).
+2. Create a PostgreSQL connection to Neon (`walmart_conn`: host, port `5432`, database, user, password, SSL), then a Lakeflow Connect pipeline (cursor: `updated_timestamp`, key: table ID).
 3. Wrap it in a Job and note the **Job ID**.
 4. Create a personal access token for dbt and the SDK.
 
@@ -261,9 +264,21 @@ Open [http://localhost:8080](http://localhost:8080) (default login `airflow` / `
 
 ---
 
+## 🛠️ Troubleshooting (Windows)
+
+| Problem | Fix |
+|---|---|
+| `DLL load failed while importing strptime: An Application Control policy has blocked this file` (pandas 3.x with `dbt init`) | Pin pandas: `uv add "pandas<3.0.0"`. If still blocked, turn off **Smart App Control** (Windows Security → App & browser control), or run the project in WSL2. |
+| `A project called walmart_project already exists here` after a crashed `dbt init` | Delete the partial folder (`Remove-Item -Recurse -Force .\walmart_project`) and rerun `dbt init`. |
+| `No module named 'dbt.adapters.databricks'` in dbt Power User | The extension is using global Python. Select the `.venv\Scripts\python.exe` interpreter, then reload the window. |
+| Red errors in `dbt_project.yml` | Keep connection details only in `profiles.yml`, never inside `dbt_project.yml`. |
+| `uc: command not found` | Typo, the command is `uv`. |
+
+---
+
 ## 🔐 Security Notes
 
-- **Never commit** tokens, passwords, connection strings or `.env` files.
+- **Never commit** Databricks tokens (`dapi...`), Neon connection strings, passwords or `.env` files. Revoke and regenerate any token that was pasted in public or shared places.
 - Replace all hosts and tokens in this repo with placeholders and rotate any token that was exposed.
 - Add `target/`, `logs/`, `dbt_packages/`, `.env` and `profiles.yml` secrets to `.gitignore`, or use environment variables (`{{ env_var('DATABRICKS_TOKEN') }}`).
 
@@ -306,7 +321,7 @@ Open [http://localhost:8080](http://localhost:8080) (default login `airflow` / `
 
 ## 🙏 Acknowledgements
 
-Project based on the end-to-end data engineering tutorial by **Ansh Lamba**. Built with Databricks, dbt, Apache Airflow, Ghost and Docker.
+Project based on the end-to-end data engineering tutorial by **Ansh Lamba**. Built with Databricks, dbt, Apache Airflow, Neon and Docker.
 
 ---
 
