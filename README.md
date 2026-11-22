@@ -8,24 +8,20 @@
 ![Airflow](https://img.shields.io/badge/Apache%20Airflow-3.x-017CEE)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)
 ![AWS](https://img.shields.io/badge/AWS-S3-FF9900)
-<img width="1917" height="910" alt="image" src="https://github.com/user-attachments/assets/edacc351-f6d8-4d43-8a29-ec10426de970" />
-
-<img width="1917" height="903" alt="image" src="https://github.com/user-attachments/assets/d1f41a23-7253-4965-af0a-52b444b04335" />
-<img width="1917" height="913" alt="image" src="https://github.com/user-attachments/assets/72c5a22d-4f45-4c29-84de-e684efcc3b30" />
-<img width="1917" height="912" alt="image" src="https://github.com/user-attachments/assets/d5cb48e9-c5f5-4ce4-b6e6-1673aaf60e68" />
 
 ---
 
 ## 📑 Table of Contents
 
 1. [Project Summary (TL;DR)](#-project-summary-tldr)
-2. [Goals and What You Learn](#-goals-and-what-you-learn)
-3. [Architecture](#️-architecture)
-4. [Tech Stack](#-tech-stack)
-5. [Core Concepts Explained](#-core-concepts-explained)
-6. [Repository Structure](#-repository-structure)
-7. [Dataset](#️-dataset)
-8. [Pipeline Walkthrough (Step by Step)](#-pipeline-walkthrough-step-by-step)
+2. [Pipeline in Action](#-pipeline-in-action)
+3. [Goals and What You Learn](#-goals-and-what-you-learn)
+4. [Architecture](#️-architecture)
+5. [Tech Stack](#-tech-stack)
+6. [Core Concepts Explained](#-core-concepts-explained)
+7. [Repository Structure](#-repository-structure)
+8. [Dataset](#️-dataset)
+9. [Pipeline Walkthrough (Step by Step)](#-pipeline-walkthrough-step-by-step)
    - [Step 1: Source database (Neon)](#step-1-source-database-neon-postgres)
    - [Step 2: Bronze layer (Databricks ingestion)](#step-2-bronze-layer-cdc-style-ingestion-in-databricks)
    - [Step 3: dbt setup](#step-3-dbt-setup)
@@ -38,14 +34,14 @@
    - [Step 10: S3 reviews ingestion](#step-10-s3-reviews-ingestion)
    - [Step 11: Scheduling](#step-11-scheduling-the-dag)
    - [Step 12: Push to GitHub](#step-12-version-control-and-github)
-9. [Getting Started (Quick Start)](#-getting-started-quick-start)
-10. [Command Cheat Sheet](#-command-cheat-sheet)
-11. [Data Quality Summary](#-data-quality-summary)
-12. [Troubleshooting](#️-troubleshooting)
-13. [Security Notes](#-security-notes)
-14. [Interview Talking Points](#-interview-talking-points)
-15. [Future Improvements](#-future-improvements)
-16. [Acknowledgements](#-acknowledgements)
+10. [Getting Started (Quick Start)](#-getting-started-quick-start)
+11. [Command Cheat Sheet](#-command-cheat-sheet)
+12. [Data Quality Summary](#-data-quality-summary)
+13. [Troubleshooting](#️-troubleshooting)
+14. [Security Notes](#-security-notes)
+15. [Interview Talking Points](#-interview-talking-points)
+16. [Future Improvements](#-future-improvements)
+17. [Acknowledgements](#-acknowledgements)
 
 ---
 
@@ -65,6 +61,36 @@
 | **Deployment** | GitHub (portfolio-ready) |
 
 **In one sentence:** raw retail data is pulled incrementally from Postgres into Delta tables, cleaned and joined with dbt, modeled into a star schema with history tracking, and the whole chain runs automatically every day through an Airflow DAG.
+
+---
+
+## 🎬 Pipeline in Action
+
+A manual run of the `orchestrate` DAG in the Airflow UI. Each of the 10 tasks runs in order and the next one only starts when the previous one succeeds.
+
+<p align="center">
+  <img width="1917" height="910" alt="Airflow DAG run: source_freshness running" src="https://github.com/user-attachments/assets/edacc351-f6d8-4d43-8a29-ec10426de970" />
+  <br/>
+  <em><strong>1. Start of the run.</strong> <code>ingest_cdc</code> (Databricks job trigger and polling) and <code>clean_target</code> have succeeded; <code>source_freshness</code> is running and the rest of the DAG is waiting.</em>
+</p>
+
+<p align="center">
+  <img width="1917" height="903" alt="Airflow DAG run: silver_technical_tests running" src="https://github.com/user-attachments/assets/d1f41a23-7253-4965-af0a-52b444b04335" />
+  <br/>
+  <em><strong>2. Silver Technical.</strong> <code>silver_technical</code> has built the incremental models and <code>silver_technical_tests</code> is validating them. A failing test here would stop the pipeline before the business layer.</em>
+</p>
+
+<p align="center">
+  <img width="1917" height="913" alt="Airflow DAG run: gold_dimensions running" src="https://github.com/user-attachments/assets/72c5a22d-4f45-4c29-84de-e684efcc3b30" />
+  <br/>
+  <em><strong>3. Gold layer.</strong> Silver Business (OBT) and its tests have passed, the ephemeral models are done, and <code>gold_dimensions</code> is running <code>dbt snapshot</code> to build the SCD Type 2 dimensions.</em>
+</p>
+
+<p align="center">
+  <img width="1917" height="912" alt="Airflow DAG run: all tasks successful" src="https://github.com/user-attachments/assets/d5cb48e9-c5f5-4ce4-b6e6-1673aaf60e68" />
+  <br/>
+  <em><strong>4. Run completed.</strong> All tasks are green, ending with <code>gold_facts</code> (the log is shown on the right).</em>
+</p>
 
 ---
 
@@ -434,7 +460,7 @@ dbt debug          # expect: All checks passed!
 
 **3.6 Project layout rules**
 
-`dbt_project.yml` declares `model-paths`, `snapshot-paths`, `macro-paths`, `test-paths`, `seed-paths`. Keep the defaults, which are an industry convention. Delete the generated `example` models.
+`dbt_project.yml` declares `model-paths`, `snapshot-paths`, `macro-paths`, `test-paths`, `seed-paths`. Keep the defaults, which are an industry convention. Delete the generated `example` models (and any leftover `marts` block in `dbt_project.yml`, otherwise dbt warns about an unused configuration).
 
 ---
 
@@ -991,7 +1017,7 @@ def orchestrate():
     )
     gold_facts = BashOperator(
         task_id="gold_facts",
-        bash_command="dbt run --select gold.fact",
+        bash_command="dbt run --select fact_orders",   # select by model name (see Troubleshooting)
         cwd=DBT_DIR,
     )
 
@@ -1041,6 +1067,7 @@ ingest_cdc → clean_target → source_freshness
 - No DAG at all = it hasn't been parsed yet; check the *dag processor* logs and wait a moment.
 - `dbt: command not found` (exit 127) → dbt isn't in the image; rebuild with the custom Dockerfile.
 - When something fails, run the same command **in a terminal first**; it is faster to read errors there.
+- **A green task does not always mean work was done.** dbt exits with code 0 and prints *"Nothing to do"* when a `--select` matches no models. Always read the task log and check with `dbt ls --select <selector>` before trusting a selector.
 - Bisect problems by **commenting out tasks** until the culprit is found (one real bug was a plain syntax slip).
 - `docker compose down` and, if needed, delete the old images so Docker rebuilds from your Dockerfile.
 
@@ -1167,6 +1194,7 @@ Open <http://localhost:8080> (`airflow` / `airflow`) and trigger the `orchestrat
 | `dbt snapshot` | Builds/updates SCD2 snapshots |
 | `dbt source freshness` | Checks source freshness |
 | `dbt compile` | Generates compiled SQL in `target/` |
+| `dbt ls --select <selector>` | Lists the models a selector matches (checks it before using it in the DAG) |
 | `docker compose build` | Builds the custom Airflow image |
 | `docker compose up -d` | Starts Airflow in the background |
 | `docker compose down` | Stops and removes containers |
@@ -1194,6 +1222,8 @@ Open <http://localhost:8080> (`airflow` / `airflow`) and trigger the `orchestrat
 | `A project called walmart_project already exists here` after a crashed `dbt init` | Delete the partial folder (`Remove-Item -Recurse -Force .\walmart_project`) and rerun `dbt init`. |
 | `No module named 'dbt.adapters.databricks'` in dbt Power User | Extension is using global Python. Select the `.venv\Scripts\python.exe` interpreter and reload the window. |
 | Red errors in `dbt_project.yml` | Keep connection details only in `profiles.yml`. Also confirm the Jinja file associations. |
+| Warning: `There are 1 unused configuration paths: models.walmart_project.marts` | Remove the leftover `marts:` block (from `dbt init`) in `dbt_project.yml`. |
+| Task is green but the log says `The selection criterion ... does not match any enabled nodes. Nothing to do.` | The `--select` value matches no models. Check it with `dbt ls --select <selector>`; select by model name (e.g. `fact_orders`) or by path (`path:models/gold/fact`). |
 | Tests fail with "table not found" | Run `dbt run` before `dbt test`. |
 | Ran `dbt run` and nothing changed | Incremental models only load new rows. Use `--full-refresh` after logic changes. |
 | `where` clause syntax error after removing the `is_active` filter | The incremental condition must start with `where`, not `and`. |
@@ -1237,6 +1267,7 @@ Open <http://localhost:8080> (`airflow` / `airflow`) and trigger the `orchestrat
 13. **Pipeline vs. job in Databricks:** code that ingests vs. the orchestration wrapper.
 14. **Idempotency:** how you proved it (0 upserts and identical counts after re-run).
 15. **Data quality strategy:** tests between layers, severities (`warn` vs `error`), singular tests for business rules.
+16. **A green task is not proof of work:** dbt returns success when a selector matches nothing, so selectors should be verified with `dbt ls`.
 
 ---
 
