@@ -1,3 +1,4 @@
+import os
 import time
 from airflow.sdk import dag, task
 from airflow.operators.bash import BashOperator
@@ -10,12 +11,35 @@ def orchestrate():
 
     @task
     def ingest_cdc():
+        databricks_host = os.getenv("DATABRICKS_HOST", "").strip()
+        databricks_token = os.getenv("DATABRICKS_TOKEN", "").strip()
+        databricks_job_id = os.getenv("DATABRICKS_JOB_ID", "").strip()
+        missing = [
+            name
+            for name, value in (
+                ("DATABRICKS_HOST", databricks_host),
+                ("DATABRICKS_TOKEN", databricks_token),
+                ("DATABRICKS_JOB_ID", databricks_job_id),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                "Set the following Airflow environment variables before running this task: "
+                + ", ".join(missing)
+            )
+
+        try:
+            databricks_job_id = int(databricks_job_id)
+        except ValueError as exc:
+            raise ValueError("DATABRICKS_JOB_ID must be an integer.") from exc
+
         ws = WorkspaceClient(
-        host="your_databricks_host",
-        token="your_databricks_token"
+            host=databricks_host,
+            token=databricks_token,
         )
 
-        job_trigger = ws.jobs.run_now(job_id="your_databricks_job_id")
+        job_trigger = ws.jobs.run_now(job_id=databricks_job_id)
 
         while True:
 
@@ -66,10 +90,10 @@ def orchestrate():
         bash_command='dbt test --select silver_b'
     )
 
-    gold_ephermeral = BashOperator(
-        task_id='gold_ephermeral',
+    gold_ephemeral = BashOperator(
+        task_id='gold_ephemeral',
         cwd='/opt/airflow/walmart_project',
-        bash_command='dbt run --select gold/ephermeral'
+        bash_command='dbt run --select gold/ephemeral'
     )
 
     gold_dimensions = BashOperator(
@@ -84,6 +108,6 @@ def orchestrate():
         bash_command='dbt run --select gold/fact'
     )
 
-    ingest_cdc() >> clean_target() >> source_freshness() >> silver_technical >> silver_technical_tests  >> silver_business >> silver_business_tests >> gold_ephermeral >> gold_dimensions >> gold_facts
+    ingest_cdc() >> clean_target() >> source_freshness() >> silver_technical >> silver_technical_tests >> silver_business >> silver_business_tests >> gold_ephemeral >> gold_dimensions >> gold_facts
 
 orchestrate_dag = orchestrate()
