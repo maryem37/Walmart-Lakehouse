@@ -1283,11 +1283,7 @@ Open <http://localhost:8080> (`airflow` / `airflow`) and trigger the `orchestrat
 - Move secrets to a proper secret manager and use Airflow Connections
 - Add alerting (Airflow failure callbacks to email/Slack)
 
----
 
-## 🙏 Acknowledgements
-
-Project based on the end-to-end data engineering tutorial by **Ansh Lamba**. The original used an agentic Postgres database; this version uses **Neon** as the serverless Postgres source. Built with Databricks, dbt, Apache Airflow, Neon, Docker and AWS S3.
 
 ---
 
